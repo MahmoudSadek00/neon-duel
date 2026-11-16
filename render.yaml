@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: neon-duel
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: neon-duel-data
+      mountPath: /app/data
+      sizeGB: 1
