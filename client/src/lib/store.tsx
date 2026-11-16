@@ -99,7 +99,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (prev && !s && prev.phase !== 'finished') toast('You left the room.', 'info');
       prevRoom.current = s;
       setRoom(s);
-      if (!s) setScreen((sc) => (sc === 'quick' ? sc : 'menu'));
+      // only fall back to the menu when the player actually left a room (keeps ?room= invite links on the Join screen)
+      if (!s && prev) setScreen((sc) => (sc === 'quick' ? sc : 'menu'));
     };
     const onGuess = (g: GuessEntry) => setLastGuess(g);
     const onTimeout = () => toast('Time ran out — your turn was skipped.', 'error');
