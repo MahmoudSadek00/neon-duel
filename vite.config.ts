@@ -8,6 +8,6 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    proxy: { '/socket.io': { target: 'http://localhost:3001', ws: true } },
+    proxy: { '/ws': { target: 'ws://localhost:8787', ws: true } },
   },
 });

@@ -3,10 +3,9 @@
  * Secrets live only inside Room.secrets and are never copied into per-player state
  * except a player's OWN secret, or both secrets after the match has finished.
  */
-import crypto from 'node:crypto';
 import { DEFAULT_TURN_SECONDS, TURN_SECONDS_OPTIONS, evaluateGuess, normalizeCode, type AvatarId } from '../shared/rules';
 import type { ClientRoomState, GuessEntry, Phase, PublicPlayer } from '../shared/types';
-import { recordMatch } from './store';
+import type { RecentMatch } from '../shared/types';
 
 export interface Identity { id: string; name: string; avatar: AvatarId }
 
@@ -25,8 +24,8 @@ interface Room {
   turnPlayerId: string | null;
   turnId: number;
   turnEndsAt: number | null;
-  turnTimer: NodeJS.Timeout | null;
-  dropTimers: Map<string, NodeJS.Timeout>;
+  turnTimer: ReturnType<typeof setTimeout> | null;
+  dropTimers: Map<string, ReturnType<typeof setTimeout>>;
   result: ClientRoomState['result'];
 }
 
@@ -46,13 +45,16 @@ export class GameManager {
   playerRoom = new Map<string, string>();
   queue: Identity[] = [];
 
-  constructor(private emit: Emitter, private opts = { reconnectMs: 60_000 }) {}
+  constructor(
+    private emit: Emitter,
+    private opts: { reconnectMs: number; recordMatch?: (id: string, won: boolean, attempts: number, entry: RecentMatch) => void } = { reconnectMs: 60_000 },
+  ) {}
 
   /* ----------------------------------------------------------------- helpers */
   private newCode() {
     let code = '';
     do {
-      code = Array.from(crypto.randomBytes(5), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+      code = Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
     } while (this.rooms.has(code));
     return code;
   }
@@ -184,7 +186,7 @@ export class GameManager {
     room.secrets.set(playerId, secret);
     if (room.players.length === 2 && room.players.every((p) => room.secrets.has(p.id))) {
       room.phase = 'playing';
-      const first = room.players[crypto.randomInt(2)].id;
+      const first = room.players[crypto.getRandomValues(new Uint32Array(1))[0] % 2].id;
       this.startTurn(room, first);
       for (const p of room.players) this.emit.event(p.id, 'match:start', { firstPlayerId: first });
     }
@@ -244,7 +246,7 @@ export class GameManager {
     if (wasPlaying && room.players.length === 2) {
       const [a, b] = room.players;
       for (const [me, them] of [[a, b], [b, a]] as const) {
-        recordMatch(me.id, winnerId === me.id, attempts[me.id], {
+        this.opts.recordMatch?.(me.id, winnerId === me.id, attempts[me.id], {
           at: Date.now(), opponent: them.name, opponentAvatar: them.avatar, won: winnerId === me.id, attempts: attempts[me.id], reason,
         });
       }

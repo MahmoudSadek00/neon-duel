@@ -3,38 +3,37 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "NEON DUEL — premium lightweight multiplayer secret number duel",
+  "description": "NEON DUEL \u2014 premium lightweight multiplayer secret number duel (Cloudflare Workers + Durable Objects)",
   "scripts": {
-    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
+    "dev": "concurrently -k -n worker,client -c cyan,magenta \"npm:dev:worker\" \"npm:dev:client\"",
+    "dev:worker": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && wrangler dev --port 8787",
     "dev:client": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
-    "start": "tsx server/index.ts",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && vite build",
+    "preview": "npm run build && wrangler dev --port 8787",
+    "deploy": "npm run build && wrangler deploy",
     "test": "node --import tsx --test --test-force-exit tests/rules.test.ts tests/game.test.ts tests/socket.test.ts",
     "e2e": "node tests/e2e.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@fontsource/orbitron": "^5.1.0",
     "@fontsource/sora": "^5.1.0",
-    "express": "^4.21.2",
     "framer-motion": "^11.11.17",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "tsx": "^4.19.2"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
+    "@cloudflare/workers-types": "^4.20250620.0",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "wrangler": "^4.20.0",
+    "tsx": "^4.19.2"
   }
 }

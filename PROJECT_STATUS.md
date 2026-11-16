@@ -1,6 +1,23 @@
 # NEON DUEL: Project Status
 
-_Last updated: 16 Nov 2026. All six phases are complete._
+_Last updated: 16 Nov 2026. All six phases are complete; hosting moved to Cloudflare (free plan)._
+
+## Phase 7: Cloudflare port ✅
+
+- **Why:** a free host with no card that stays always on.
+- **Server:** Express/Socket.IO was replaced by a Cloudflare Worker plus a `GameHub` Durable Object (`worker/`), talking to the browser over native WebSockets. The game engine (`server/game.ts`) is unchanged apart from using Web Crypto and an injected stats recorder.
+- **Profiles:** `server/profiles.ts` holds profiles in memory, and the Durable Object saves each one to its storage as it changes, so stats survive restarts and redeploys.
+- **Client:** `client/src/lib/net.ts` is now a small WebSocket client that does what the socket.io client did:
+  - request/acknowledge calls;
+  - pushed events;
+  - auto-reconnect with backoff;
+  - a ping every 25 s;
+  - reconnecting when the tab becomes visible or the network returns.
+- **Removed:** `server/index.ts`, `server/store.ts`, `Dockerfile`, `render.yaml`.
+- **Added:** `wrangler.jsonc` (assets + Durable Object binding + SQLite migration).
+- **Tests:**
+  - `npm test`: 10/10 pass against `wrangler dev` (the real Workers runtime).
+  - Two-browser e2e: passes against `wrangler dev`.
 
 ## Phase 1: Visual interface ✅
 
@@ -70,20 +87,17 @@ _Last updated: 16 Nov 2026. All six phases are complete._
 
 ## Phase 6: Deployment prep ✅
 
-- **Single process:** `npm run build && npm start` serves the client and the realtime server on one port (`PORT`).
-- **Hosting files:** a `Dockerfile` (multi-stage, data volume) and `render.yaml` (Render with a persistent disk).
-- **Health check:** `GET /health`.
+- **Superseded by Phase 7:** see above. The game now deploys to Cloudflare Workers with `wrangler deploy`.
 - **Assets:** fonts are self-hosted (`@fontsource`), with no third-party requests. The JS bundle is about 109 KB gzipped.
 
 ## Known issues / notes
 
 - **Spec example corrected:** the brief listed secret 263 / guess 469 as 0 correct. Under the exact-position rule the 6 matches, so the game returns 1. The How to Play example now uses 491 → 0 instead.
 - **Profiles are per browser:** they are tied to a browser token and there is no password login. Clearing site data creates a new profile.
-- **Persistence:** stats are stored in a JSON file, which is fine for a single server. For multiple server instances, move `server/store.ts` to Supabase/Postgres and add the Socket.IO Redis adapter.
-- **Server restarts:** active rooms live in memory, so a server restart ends matches in progress. Profiles and stats are kept.
+- **Matches in progress can be lost:** one global Durable Object runs all rooms in memory. If Cloudflare restarts or evicts it, which is rare while players are connected, the matches running at that moment are lost. Profiles and stats are kept in storage.
 
 ## Next steps
 
-1. Deploy, for example to Render using `render.yaml`, and share the URL.
+1. Connect the GitHub repo in Cloudflare Workers & Pages (build `npm run build`, deploy `npx wrangler deploy`).
 2. Optional: Supabase accounts so profiles work across devices, plus a global leaderboard.
 3. Optional: a deduction helper that lets players mark which digits they've ruled out, a spectator link, and PWA install.

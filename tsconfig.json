@@ -13,5 +13,6 @@
     "allowImportingTsExtensions": false,
     "types": ["node"]
   },
-  "include": ["client/src", "shared", "server", "vite.config.ts"]
+  "include": ["client/src", "shared", "server", "vite.config.ts"],
+  "exclude": ["worker"]
 }

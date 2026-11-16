@@ -1,7 +1,7 @@
 /**
- * End-to-end multiplayer test against a real server process (no browser).
+ * End-to-end multiplayer test against the real Cloudflare Worker + Durable Object (run locally by `wrangler dev`).
  * Covers rooms, readiness, secrets privacy, turn ownership, duplicate submissions,
- * evaluation, win, rematch, timeout and reconnect.
+ * evaluation, win, rematch, timeout deadline, reconnect and forfeit.
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,44 +10,55 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { io, type Socket } from 'socket.io-client';
 import type { ClientRoomState } from '../shared/types';
 
-const PORT = 4300 + Math.floor(Math.random() * 500);
-const URL = `http://localhost:${PORT}`;
+const PORT = 8800 + Math.floor(Math.random() * 150);
+const WS = `ws://127.0.0.1:${PORT}/ws`;
 let srv: ChildProcess;
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nd-'));
 
 before(async () => {
-  srv = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], { env: { ...process.env, PORT: String(PORT), DATA_DIR: dataDir, RECONNECT_MS: '1500' }, stdio: 'pipe' });
+  fs.mkdirSync('dist', { recursive: true });
+  const persist = fs.mkdtempSync(path.join(os.tmpdir(), 'nd-wr-'));
+  srv = spawn(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev', '--port', String(PORT), '--ip', '127.0.0.1',
+    '--persist-to', persist, '--var', 'RECONNECT_MS:1500'], { stdio: 'pipe', env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } });
   await new Promise<void>((res, rej) => {
-    const t = setTimeout(() => rej(new Error('server did not start')), 20000);
-    srv.stdout!.on('data', (d) => { if (String(d).includes('NEON DUEL server')) { clearTimeout(t); res(); } });
-    srv.stderr!.on('data', (d) => process.stderr.write(d));
+    const t = setTimeout(() => rej(new Error('wrangler dev did not start')), 60000);
+    const on = (d: Buffer) => { if (String(d).includes('Ready on')) { clearTimeout(t); res(); } };
+    srv.stdout!.on('data', on);
+    srv.stderr!.on('data', on);
   });
 });
-after(() => { srv.kill(); });
+after(() => { srv.kill('SIGTERM'); });
 
 class Client {
-  sock: Socket;
+  ws: WebSocket;
   state: ClientRoomState | null = null;
-  events: { name: string; payload: any }[] = [];
   raw: string[] = [];
+  connected = false;
+  private seq = 0;
+  private pending = new Map<number, (r: any) => void>();
   constructor(public token = crypto.randomBytes(32).toString('hex')) {
-    this.sock = io(URL, { auth: { token }, transports: ['websocket'], forceNew: true });
-    this.sock.on('room:state', (s) => { this.state = s; this.raw.push(JSON.stringify(s)); });
-    this.sock.onAny((name, payload) => { this.events.push({ name, payload }); if (name !== 'room:state') this.raw.push(JSON.stringify(payload)); });
+    this.ws = new WebSocket(`${WS}?token=${token}`);
+    this.ws.onmessage = (e) => {
+      const m = JSON.parse(String(e.data));
+      if (m.t === 'ack') { this.pending.get(m.id)?.(m); this.pending.delete(m.id); return; }
+      if (m.t !== 'ev') return;
+      if (m.ev === 'hello') { this.connected = true; return; }
+      this.raw.push(JSON.stringify(m.p));
+      if (m.ev === 'room:state') this.state = m.p;
+    };
   }
-  ready() { return new Promise<void>((r) => (this.sock.connected ? r() : this.sock.once('connect', () => r()))); }
+  async ready() { const t0 = Date.now(); while (!this.connected) { if (Date.now() - t0 > 8000) throw new Error('no hello'); await new Promise((r) => setTimeout(r, 20)); } }
   call<T = any>(ev: string, p: any = {}): Promise<{ ok: boolean; data?: T; error?: string }> {
-    return new Promise((r) => this.sock.emit(ev, p, r));
+    const id = ++this.seq;
+    return new Promise((r) => { this.pending.set(id, r); this.ws.send(JSON.stringify({ t: 'call', id, ev, p })); });
   }
-  async until(fn: (s: ClientRoomState | null) => boolean, ms = 4000) {
+  async until(fn: (s: ClientRoomState | null) => boolean, ms = 5000) {
     const t0 = Date.now();
     while (!fn(this.state)) { if (Date.now() - t0 > ms) throw new Error('timeout waiting for state'); await new Promise((r) => setTimeout(r, 20)); }
     return this.state!;
   }
-  close() { this.sock.close(); }
+  close() { this.ws.close(); }
 }
 
 async function startMatch(turnSeconds = 45) {
@@ -175,8 +186,7 @@ test('reconnect keeps the seat and secret; long disconnect forfeits', async () =
 });
 
 test('invalid tokens are refused', async () => {
-  const s = io(URL, { auth: { token: 'nope' }, transports: ['websocket'], forceNew: true, reconnection: false });
-  const err = await new Promise<Error>((r) => s.on('connect_error', r));
-  assert.equal(err.message, 'bad-token');
-  s.close();
+  const ws = new WebSocket(`${WS}?token=nope`);
+  const outcome = await new Promise<string>((r) => { ws.onopen = () => r('open'); ws.onerror = () => r('refused'); });
+  assert.equal(outcome, 'refused');
 });
